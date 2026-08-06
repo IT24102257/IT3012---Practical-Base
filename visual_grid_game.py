@@ -49,13 +49,24 @@ class VisualGridHuntGame:
         self.steps = 0
         self.collision = False
 
-    def get_percept(self) -> dict:
+    def get_percept(self, facing: str = 'Up') -> dict:
+        # Only provide local partial observability: wall ahead and food at current cell
+        # Agent uses internal direction to interpret "ahead".
+        x, y = self.agent_pos
+        next_pos = [x, y]
+        if facing == 'Up':
+            next_pos[1] = min(self.height - 1, next_pos[1] + 1)
+        elif facing == 'Down':
+            next_pos[1] = max(0, next_pos[1] - 1)
+        elif facing == 'Left':
+            next_pos[0] = max(0, next_pos[0] - 1)
+        elif facing == 'Right':
+            next_pos[0] = min(self.width - 1, next_pos[0] + 1)
+
         return {
-            'agent_pos': list(self.agent_pos),
-            'opponent_positions': [list(op) for op in self.opponents],
-            'smells_food': tuple(self.agent_pos) in self.food_positions,
+            'wall_ahead': tuple(next_pos) in self.walls,
+            'food_here': tuple(self.agent_pos) in self.food_positions,
             'smells_toxin': tuple(self.agent_pos) in self.toxic_traps,
-            'hit_wall': tuple(self.agent_pos) in self.walls,
             'collision': self.collision,
             'score': self.score,
             'remaining_food': len(self.food_positions)
