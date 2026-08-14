@@ -1,5 +1,8 @@
 # agent.py
+import heapq
 import random
+from collections import deque
+
 
 class GreedyGridAgent:
     """A simple agent that tries to move around systematically to clear the grid."""
@@ -50,41 +53,146 @@ class ModelBasedAgent:
 
 
 class SearchAgent:
-    """A search agent that uses breadth-first search to find the shortest path."""
+    """A graph-search agent that can plan paths with BFS, DFS, or UCS."""
 
-    def bfs_search(self, start_pos, goal_pos, walls, grid_size):
-        width, height = grid_size
-        start = tuple(start_pos)
-        goal = tuple(goal_pos)
-        walls_set = set(walls)
+    def __init__(self):
+        self.plan = []
+        self.active_algo = 'BFS'
 
-        if start == goal:
-            return []
-
-        moves = [
+    @staticmethod
+    def _moves():
+        return [
             ('Up', (0, 1)),
             ('Down', (0, -1)),
             ('Left', (-1, 0)),
             ('Right', (1, 0))
         ]
 
-        frontier = [(start, [])]
-        visited = {start}
+    def bfs_search(self, start_pos, goal_pos, walls, grid_size):
+        width, height = grid_size
+        start = tuple(start_pos)
+        goal = tuple(goal_pos)
+        walls_set = set(tuple(w) for w in walls)
+
+        if start == goal:
+            return []
+
+        frontier = deque([(start, [])])
+        reached = {start}
 
         while frontier:
-            pos, path = frontier.pop(0)
-            for action, delta in moves:
+            pos, path = frontier.popleft()
+            for action, delta in self._moves():
                 next_pos = (pos[0] + delta[0], pos[1] + delta[1])
                 if not (0 <= next_pos[0] < width and 0 <= next_pos[1] < height):
                     continue
-                if next_pos in walls_set or next_pos in visited:
+                if next_pos in walls_set or next_pos in reached:
                     continue
 
                 new_path = path + [action]
                 if next_pos == goal:
                     return new_path
 
-                visited.add(next_pos)
+                reached.add(next_pos)
                 frontier.append((next_pos, new_path))
 
         return None
+
+    def dfs_search(self, start_pos, goal_pos, walls, grid_size):
+        width, height = grid_size
+        start = tuple(start_pos)
+        goal = tuple(goal_pos)
+        walls_set = set(tuple(w) for w in walls)
+
+        if start == goal:
+            return []
+
+        stack = [(start, [])]
+        reached = {start}
+
+        while stack:
+            pos, path = stack.pop()
+            for action, delta in reversed(self._moves()):
+                next_pos = (pos[0] + delta[0], pos[1] + delta[1])
+                if not (0 <= next_pos[0] < width and 0 <= next_pos[1] < height):
+                    continue
+                if next_pos in walls_set or next_pos in reached:
+                    continue
+
+                new_path = path + [action]
+                if next_pos == goal:
+                    return new_path
+
+                reached.add(next_pos)
+                stack.append((next_pos, new_path))
+
+        return None
+
+    def ucs_search(self, start_pos, goal_pos, walls, grid_size):
+        width, height = grid_size
+        start = tuple(start_pos)
+        goal = tuple(goal_pos)
+        walls_set = set(tuple(w) for w in walls)
+
+        if start == goal:
+            return []
+
+        frontier = []
+        counter = 0
+        heapq.heappush(frontier, (0, counter, start, []))
+        reached = {start: 0}
+
+        while frontier:
+            cost, _, pos, path = heapq.heappop(frontier)
+            if pos == goal:
+                return path
+
+            for action, delta in self._moves():
+                next_pos = (pos[0] + delta[0], pos[1] + delta[1])
+                if not (0 <= next_pos[0] < width and 0 <= next_pos[1] < height):
+                    continue
+                if next_pos in walls_set:
+                    continue
+
+                new_cost = cost + 1
+                previous_best = reached.get(next_pos)
+                if previous_best is not None and new_cost >= previous_best:
+                    continue
+
+                reached[next_pos] = new_cost
+                counter += 1
+                heapq.heappush(frontier, (new_cost, counter, next_pos, path + [action]))
+
+        return None
+
+    def sense_and_act(self, percept: dict) -> str:
+        if not self.plan:
+            if not percept.get('all_food'):
+                return 'Up'
+
+            start_pos = tuple(percept.get('agent_pos', (0, 0)))
+            grid_size = percept.get('grid_size', (10, 10))
+            walls = percept.get('walls', [])
+            all_food = percept.get('all_food', [])
+
+            if not all_food:
+                return 'Up'
+
+            closest_food = min(
+                all_food,
+                key=lambda food: abs(food[0] - start_pos[0]) + abs(food[1] - start_pos[1])
+            )
+
+            algorithm = {
+                'BFS': self.bfs_search,
+                'DFS': self.dfs_search,
+                'UCS': self.ucs_search,
+            }.get(self.active_algo, self.bfs_search)
+
+            path = algorithm(start_pos, closest_food, walls, grid_size)
+            self.plan = list(path) if path else []
+
+            if not self.plan:
+                return 'Up'
+
+        return self.plan.pop(0)

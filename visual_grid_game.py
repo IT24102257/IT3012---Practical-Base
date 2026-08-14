@@ -64,12 +64,16 @@ class VisualGridHuntGame:
             next_pos[0] = min(self.width - 1, next_pos[0] + 1)
 
         return {
+            'agent_pos': list(self.agent_pos),
             'wall_ahead': tuple(next_pos) in self.walls,
             'food_here': tuple(self.agent_pos) in self.food_positions,
             'smells_toxin': tuple(self.agent_pos) in self.toxic_traps,
             'collision': self.collision,
             'score': self.score,
-            'remaining_food': len(self.food_positions)
+            'remaining_food': len(self.food_positions),
+            'grid_size': (self.width, self.height),
+            'walls': list(self.walls),
+            'all_food': list(self.food_positions)
         }
 
     def execute_action(self, action: str):

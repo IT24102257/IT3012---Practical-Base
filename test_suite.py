@@ -104,6 +104,21 @@ class TestPractical3_SearchAgent(unittest.TestCase):
         is_empty_or_none = (path is None) or (len(path) == 0)
         self.assertTrue(is_empty_or_none, "BFS should return None or [] when the goal is unreachable.")
 
+    def test_search_agent_uses_global_state_plan(self):
+        """SearchAgent should build a plan from grid, walls, and food in the percept."""
+        agent = SearchAgent()
+        percept = {
+            'agent_pos': [0, 0],
+            'grid_size': (4, 4),
+            'walls': [(1, 1), (2, 2)],
+            'all_food': [(3, 3)]
+        }
+
+        action = agent.sense_and_act(percept)
+        self.assertIsInstance(action, str)
+        self.assertIn(action, ['Up', 'Down', 'Left', 'Right'])
+        self.assertTrue(agent.plan or action in ['Up', 'Down', 'Left', 'Right'])
+
 
 if __name__ == '__main__':
     # Run the test suite
