@@ -3,6 +3,7 @@ import heapq
 import math
 import random
 from collections import deque
+from logic_engine import KnowledgeBase
 
 
 class GreedyGridAgent:
@@ -234,6 +235,166 @@ class SearchAgent:
             }.get(self.active_algo, self.bfs_search)
 
             path = algorithm(start_pos, closest_food, walls, grid_size)
+            self.plan = list(path) if path else []
+
+            if not self.plan:
+                return 'Up'
+
+        return self.plan.pop(0)
+
+
+class LogicBasedAgent(SearchAgent):
+    """
+    A logic-based agent that uses declarative rules with forward chaining
+    to validate pathfinding decisions.
+    
+    Extends SearchAgent's A* algorithm to consult a Knowledge Base before
+    expanding each node, applying safety rules to determine feasibility.
+    """
+    
+    def __init__(self):
+        """Initialize the agent with a search plan and knowledge base."""
+        super().__init__()
+        self.kb = KnowledgeBase()
+        self._setup_rules()
+    
+    def _setup_rules(self):
+        """
+        Define the safety rules for the agent.
+        
+        Rule 1: TargetVisible ∧ HasDust ⇒ SafeToEngage
+        Rule 2: SafeToEngage ∧ BloodseekerMissing ⇒ Retreat
+        """
+        self.kb.tell_rule(['TargetVisible', 'HasDust'], 'SafeToEngage')
+        self.kb.tell_rule(['SafeToEngage', 'BloodseekerMissing'], 'Retreat')
+    
+    def _tile_percepts(self, pos, percept):
+        """
+        Generate percepts for a specific tile based on current game state.
+        
+        Args:
+            pos (tuple): The position to evaluate
+            percept (dict): The global percept from the environment
+            
+        Returns:
+            list: List of fact strings relevant to this tile
+        """
+        facts = []
+        
+        # Check if target (food) is visible from this tile
+        all_food = percept.get('all_food', [])
+        if all_food:
+            facts.append('TargetVisible')
+        
+        # Check if this tile has dust (food)
+        if pos in [tuple(f) for f in all_food]:
+            facts.append('HasDust')
+        
+        # Check if bloodseeker (obstacle/wall) is missing from this tile
+        walls = percept.get('walls', [])
+        if pos not in [tuple(w) for w in walls]:
+            facts.append('BloodseekerMissing')
+        
+        return facts
+    
+    def astar_search_with_logic(self, start_pos, goal_pos, walls, grid_size, percept):
+        """
+        A* search enhanced with logic-based feasibility checking.
+        
+        Before expanding each node, consults the Knowledge Base to check
+        if safety rules permit engagement (Retreat condition).
+        
+        Args:
+            start_pos (tuple): Starting position
+            goal_pos (tuple): Goal position
+            walls (list): List of wall positions
+            grid_size (tuple): Grid dimensions
+            percept (dict): Current percept from environment
+            
+        Returns:
+            list: Path of actions, or None if no path found
+        """
+        width, height = grid_size
+        start = tuple(start_pos)
+        goal = tuple(goal_pos)
+        walls_set = set(tuple(w) for w in walls)
+        heuristic = self.manhattan_distance
+
+        frontier = []
+        reached_states = set()
+        start_g_cost = 0
+        start_f_cost = start_g_cost + heuristic(start, goal)
+        heapq.heappush(frontier, (start_f_cost, start_g_cost, start, []))
+
+        while frontier:
+            f_cost, g_cost, current_pos, path_taken = heapq.heappop(frontier)
+            if current_pos == goal:
+                return path_taken
+            if current_pos in reached_states:
+                continue
+            reached_states.add(current_pos)
+
+            for action, delta in self._moves():
+                next_pos = (current_pos[0] + delta[0], current_pos[1] + delta[1])
+                
+                # Basic feasibility checks
+                if not (0 <= next_pos[0] < width and 0 <= next_pos[1] < height):
+                    continue
+                if next_pos in walls_set or next_pos in reached_states:
+                    continue
+                
+                # LOGIC-BASED FEASIBILITY CHECK
+                # Clear facts and evaluate this tile with rules
+                self.kb.clear_facts()
+                tile_facts = self._tile_percepts(next_pos, percept)
+                for fact in tile_facts:
+                    self.kb.tell_fact(fact)
+                self.kb.forward_chain()
+                
+                # If 'Retreat' is deduced, mark tile as infeasible
+                if 'Retreat' in self.kb.facts:
+                    continue  # Skip this neighbor
+                
+                # Node is feasible, add to frontier
+                new_g_cost = g_cost + 1
+                new_h_cost = heuristic(next_pos, goal)
+                new_f_cost = new_g_cost + new_h_cost
+                heapq.heappush(frontier, (new_f_cost, new_g_cost, next_pos, path_taken + [action]))
+
+        return None
+    
+    def sense_and_act(self, percept: dict) -> str:
+        """
+        Decide on an action using logic-enhanced A* pathfinding.
+        
+        Args:
+            percept (dict): Current percept from environment
+            
+        Returns:
+            str: The action to perform ('Up', 'Down', 'Left', 'Right')
+        """
+        if not self.plan:
+            if not percept.get('all_food'):
+                return 'Up'
+
+            start_pos = tuple(percept.get('agent_pos', (0, 0)))
+            grid_size = percept.get('grid_size', (10, 10))
+            walls = percept.get('walls', [])
+            all_food = percept.get('all_food', [])
+            remaining_food = percept.get('remaining_food', len(all_food))
+
+            if remaining_food == 0 or not all_food:
+                return 'Up'
+
+            closest_food = min(
+                all_food,
+                key=lambda food: abs(food[0] - start_pos[0]) + abs(food[1] - start_pos[1])
+            )
+
+            # Use logic-enhanced A* search
+            path = self.astar_search_with_logic(
+                start_pos, closest_food, walls, grid_size, percept
+            )
             self.plan = list(path) if path else []
 
             if not self.plan:
